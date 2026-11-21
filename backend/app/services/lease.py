@@ -1,9 +1,20 @@
+"""开窗租约（重放臂）。
+
+铁律：
+  * 开窗在写事务内调用 ready.evaluate_closure 重放同一依赖闭包，与探针同源；
+  * 闭包不齐：每条失败检查落一行 conflicts（写明缺哪条上游）、仅累加
+    conflict_count，返回 ok=False —— 不插租约、不改批窗状态、不碰
+    open_leases 水位（失败路径禁止偷加水位）；
+  * 闭包齐：租约落库、批窗置 live、open_leases +1 在同一事务提交，
+    要么全成要么全回滚，不存在「租约未落水位先涨」；
+  * 并发开窗由 BEGIN IMMEDIATE 串行化，后到者在锁内对最新事实重放。
+"""
 from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
 
-from app.services.ready import readiness, resource_busy
+from app.services.ready import evaluate_closure
 
 
 def _now() -> str:
@@ -40,60 +51,46 @@ def open_lease(conn: sqlite3.Connection, window_code: str) -> dict:
     if session["status"] == "done":
         raise ValueError("批窗已结束")
 
-    ready = readiness(conn, session)
-    if not ready["ready"]:
+    # 与探针共用同一闭包重放；此刻在 BEGIN IMMEDIATE 事务内，读到的就是
+    # 最新事实，探针绿而开窗缺依赖在此不可能发生。
+    checks = evaluate_closure(conn, session)
+    failed = [c for c in checks if not c["passed"]]
+    if failed:
         mode = _conflict_mode(conn)
-        for reason in ready["reasons"]:
-            kind = "room" if "算力槽" in reason else ("teacher" if "执行器" in reason else "ready")
-            resource = (
-                session["slot_code"]
-                if kind == "room"
-                else (session["executor_code"] if kind == "teacher" else window_code)
-            )
+        for c in failed:
             conn.execute(
-                "INSERT INTO conflicts(kind, window_code, resource_code, day, start_min, end_min, reason, created_at) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO conflicts(kind, window_code, resource_code, day, "
+                "start_min, end_min, reason, created_at) VALUES(?,?,?,?,?,?,?,?)",
                 (
-                    kind,
+                    c["kind"],
                     window_code,
-                    resource,
+                    c["resource_code"],
                     session["day"],
                     session["start_min"],
                     session["end_min"],
-                    reason,
+                    c["reason"],
                     _now(),
                 ),
             )
-            _bump(conn, "conflict_count", 1)
-        # 底座贯彻 reject（冲突落库后由调用方提交）；候补算力槽留给后续题
+        # 只动冲突计数；open_leases 与 leases/windows 一律不碰，随事务回滚外的提交
+        conflict_n = _bump(conn, "conflict_count", 1)
         return {
             "ok": False,
-            "error": "；".join(ready["reasons"]),
+            "error": "；".join(c["reason"] for c in failed),
+            "missing": [
+                {"kind": c["kind"], "resource_code": c["resource_code"], "reason": c["reason"]}
+                for c in failed
+            ],
             "conflict_mode": mode,
+            "conflict_count": conflict_n,
         }
 
-    if resource_busy(
-        conn,
-        kind="room",
-        resource_code=session["slot_code"],
-        day=session["day"],
-        start_min=session["start_min"],
-        end_min=session["end_min"],
-    ) or resource_busy(
-        conn,
-        kind="teacher",
-        resource_code=session["executor_code"],
-        day=session["day"],
-        start_min=session["start_min"],
-        end_min=session["end_min"],
-    ):
-        raise ValueError("资源刚被占用，开窗失败")
-
+    # 闭包齐 → 租约、批窗状态、水位同事务自洽
     n = conn.execute("SELECT COUNT(*) c FROM leases").fetchone()["c"] + 1
     lease_no = f"L-{session['day'].replace('-', '')}-{n:04d}"
     conn.execute(
-        "INSERT INTO leases(lease_no, window_code, slot_code, executor_code, day, start_min, end_min, status, opened_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO leases(lease_no, window_code, slot_code, executor_code, day, "
+        "start_min, end_min, status, opened_at) VALUES(?,?,?,?,?,?,?,?,?)",
         (
             lease_no,
             window_code,

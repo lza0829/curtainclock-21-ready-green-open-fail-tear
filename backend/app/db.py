@@ -123,12 +123,15 @@ def transaction():
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """老库补列：windows 增加模板快照溯源字段（快照臂：值在展开时定格）。"""
+    """老库补列并清除已废弃的旁路旗（重放臂不允许任何刷绿缓存残留）。"""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(windows)")}
     if "template_code" not in cols:
         conn.execute("ALTER TABLE windows ADD COLUMN template_code TEXT")
     if "template_version" not in cols:
         conn.execute("ALTER TABLE windows ADD COLUMN template_version INTEGER")
+    # 旧版 ready_panel 旁路：逐窗刷绿 JSON + 全局绿灯旗，重放架构下一律失效
+    conn.execute("DELETE FROM settings WHERE key LIKE 'ready_paint:%'")
+    conn.execute("DELETE FROM settings WHERE key='ready_panel_green'")
 
 
 def init_db() -> None:

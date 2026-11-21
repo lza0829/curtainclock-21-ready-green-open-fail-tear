@@ -47,7 +47,15 @@ def open_lease(body: OpenBody):
         with transaction() as conn:
             result = lease_svc.open_lease(conn, body.window_code)
         if result.get("ok") is False:
-            raise HTTPException(409, result.get("error") or "开窗冲突")
+            # 409 必须写明缺了哪条上游；冲突行已在同一事务落桶
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": result.get("error") or "开窗冲突",
+                    "missing": result.get("missing", []),
+                    "conflict_mode": result.get("conflict_mode"),
+                },
+            )
         return result
     except ValueError as e:
         raise HTTPException(409, str(e)) from e

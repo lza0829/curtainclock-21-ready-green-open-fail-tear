@@ -19,6 +19,7 @@ async function req(path, opts = {}) {
 
 export const api = {
   dashboard: () => req("/dashboard"),
+  watermarks: () => req("/watermarks"),
   slots: () => req("/slots"),
   executors: () => req("/executors"),
   windows: () => req("/windows"),
@@ -40,4 +41,14 @@ export const api = {
     req("/leases/open", { method: "POST", body: JSON.stringify({ window_code }) }),
   closeLease: (lease_no) =>
     req("/leases/close", { method: "POST", body: JSON.stringify({ lease_no }) }),
+  setSlotActive: (code, active) =>
+    req(`/slots/${code}/active`, {
+      method: "POST",
+      body: JSON.stringify({ active }),
+    }),
+  setExecutorActive: (code, active) =>
+    req(`/executors/${code}/active`, {
+      method: "POST",
+      body: JSON.stringify({ active }),
+    }),
 };

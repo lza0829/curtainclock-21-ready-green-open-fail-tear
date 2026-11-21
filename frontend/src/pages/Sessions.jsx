@@ -100,9 +100,14 @@ export default function Sessions() {
                 {r.readiness?.ready ? (
                   <span className="tag live">就绪</span>
                 ) : (
-                  <span className="tag bad">
-                    {(r.readiness?.reasons || []).join("；") || "未就绪"}
-                  </span>
+                  <div>
+                    <span className="tag bad">未就绪</span>
+                    {(r.readiness?.reasons || []).map((x) => (
+                      <div key={x}>
+                        <small className="tag bad">{x}</small>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </td>
               <td>

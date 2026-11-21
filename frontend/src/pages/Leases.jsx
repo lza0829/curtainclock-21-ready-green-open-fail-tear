@@ -9,11 +9,14 @@ function fmtMin(m) {
 
 export default function Leases() {
   const [rows, setRows] = useState([]);
+  const [wm, setWm] = useState(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
   async function load() {
-    setRows(await api.leases());
+    const [leases, water] = await Promise.all([api.leases(), api.watermarks()]);
+    setRows(leases);
+    setWm(water);
   }
 
   useEffect(() => {
@@ -35,6 +38,17 @@ export default function Leases() {
   return (
     <section className="panel">
       <h2>租约</h2>
+      {wm && (
+        <p>
+          <span className={`tag ${wm.consistent ? "live" : "bad"}`}>
+            水位 {wm.watermarks.find((x) => x.key === "open_leases")?.value ?? 0}
+            {" "}/ open 租约实数 {wm.actual_open_leases} / 占用批窗{" "}
+            {wm.actual_live_sessions}
+            {" — "}
+            {wm.consistent ? "三方一致" : "不一致"}
+          </span>
+        </p>
+      )}
       {msg && <div className="msg">{msg}</div>}
       {err && <div className="msg err">{err}</div>}
       <table>

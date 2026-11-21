@@ -5,6 +5,17 @@
 - 前端：http://127.0.0.1:6100 （React + Vite）
 - API：http://127.0.0.1:11100
 
+## 就绪口径：重放臂（全局唯一，不混快照世代臂、无旁路旗）
+
+「就绪假绿听谁拆」——**以开窗当时依赖闭包 ∪ 租约可否落库的重放为准**，探针与开窗共用同一闭包函数 `services/ready.py::evaluate_closure`：
+
+- 探针（`GET /windows/{code}/ready`、`GET /windows`、总览就绪数）是**只读纯计算重放**：算力槽/执行器启用态、当日时段 open 租约占用，全部现查现算，**无缓存、无世代、无写入**；并发双探针必然同结果，不存在两套就绪声明，也不存在交错读到旧快照；
+- 开窗（`POST /leases/open`）在 `BEGIN IMMEDIATE` 写事务内**重跑同一闭包**：探针绿则开窗闭包必齐；闭包不齐 → 每条缺失依赖写一行 `conflicts`（reason 逐字指明资源与冲突租约）、409 回执带结构化 `missing`、批窗留 `draft`、**不插 open 租约、不碰 `open_leases` 水位**（仅 `conflict_count+1`）；
+- 闭包齐 → 租约落库、批窗置 `live`、`open_leases+1` **同事务提交**，要么全成要么全回滚，不存在「租约未落水位先涨」；关窗同理同事务回落；
+- 依赖维护（`POST /slots/{code}/active`、`POST /executors/{code}/active`）改变事实后，下一次重放立即收口，不存在快照外变更静默变绿；
+- 互证接口：资源页带 `open_occupancy` 占用索引（实时数 open 租约）、`GET /watermarks` 同报水位值与 leases/conflicts/live 实数及 `consistent`、总览逐窗重放并列出每个未就绪窗缺了哪条上游；
+- 历史 `ready_paint:*` / `ready_panel_green` 旁路旗在迁移时清除，代码中不存在任何覆写就绪结果的旁路。
+
 ## 资源绑定口径：快照臂（全局唯一，不混跟随臂）
 
 「已展开草稿听谁的资源绑定」——**以展开时刻快照为准**：

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from app.services import ready_panel
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -93,5 +92,3 @@ def discard_window(code: str):
             raise HTTPException(409, "仅待开窗草稿可作废；已占用/已结束批窗不可动")
         conn.execute("DELETE FROM windows WHERE code=?", (code,))
         return {"ok": True, "discarded": code}
-
-# ready panel import retained for surface routes

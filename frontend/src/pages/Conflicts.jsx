@@ -35,7 +35,7 @@ export default function Conflicts() {
           )}
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.kind}</td>
+              <td>{r.kind === "room" ? "算力槽" : r.kind === "teacher" ? "执行器" : r.kind}</td>
               <td>{r.window_code}</td>
               <td>{r.resource_code}</td>
               <td>{r.reason}</td>
